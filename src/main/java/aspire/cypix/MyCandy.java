@@ -9,19 +9,19 @@ public enum MyCandy implements Candy {
     C3(3),
     C4(4);
 
-    private final int value;
+    private final int flavour;
 
-    MyCandy(int value) {
-        this.value = value;
+    MyCandy(int flavour) {
+        this.flavour = flavour;
     }
 
     public int flavour() {
-        return value;
+        return flavour;
     }
 
-    public static MyCandy fromValue(int value) {
+    public static MyCandy fromFlavour(int value) {
         return Arrays.stream(values())
-                .filter((MyCandy it) -> it.value == value)
+                .filter((MyCandy it) -> it.flavour == value)
                 .findFirst()
                 .orElse(C0);
     }

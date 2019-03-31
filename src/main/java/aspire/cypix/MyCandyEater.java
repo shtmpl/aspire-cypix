@@ -23,12 +23,13 @@ public class MyCandyEater implements CandyEater {
     }
 
     private void eating(Candy candy) {
-        switch (candy.flavour()) {
+        int flavour = candy.flavour();
+        switch (flavour) {
             case 0:
             case 1:
             case 2:
             case 3:
-                Timing.sleep(2, TimeUnit.SECONDS);
+                Timing.sleep(flavour, TimeUnit.SECONDS);
                 return;
             case 4:
                 say("Boom!");

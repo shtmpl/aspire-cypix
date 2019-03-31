@@ -1,6 +1,9 @@
 package aspire.cypix;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
@@ -10,9 +13,9 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 /**
  * Candy eating service.
@@ -20,10 +23,13 @@ import java.util.concurrent.locks.ReentrantLock;
 public class CandyService {
 
     private final ExecutorService producingExecutorService = Executors.newSingleThreadExecutor();
-    private final ExecutorService consumingExecutorService;
+    private final Mutex producingMutex = new Mutex();
+    private final LinkedList<Candy> producingQueue = new LinkedList<>();
 
-    private final Work work = new Work();
-    private final Processing processing = new Processing();
+    private final ExecutorService consumingExecutorService;
+    private final Mutex consumingMutex = new Mutex();
+    private final Map<Integer, Mutex> consumingMutexesByFlavour = new LinkedHashMap<>();
+    private final Set<Integer> consumingFlavourQueue = new LinkedHashSet<>();
 
     /**
      * Initialised with an array of available consumers ({@link CandyEater}s).
@@ -35,51 +41,61 @@ public class CandyService {
             while (!Thread.currentThread().isInterrupted()) {
                 Candy candy;
 
-                work.availabilityLock.lock();
+                producingMutex.getLock().lock();
                 try {
-                    while ((candy = work.stealAnyCandy()) == null) {
-                        work.availabilityCondition.await();
+                    while (producingQueue.isEmpty() || (candy = producingQueue.removeFirst()) == null) {
+                        producingMutex.getCondition().await();
                     }
+
+                    System.err.printf("[%s]. Remaining: %s%n", candy, producingQueue);
+
+                    producingMutex.getCondition().signalAll();
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
 
                     throw new RuntimeException(exception);
                 } finally {
-                    work.availabilityLock.unlock();
+                    producingMutex.getLock().unlock();
                 }
 
                 int flavour = candy.flavour();
 
-                processing.lock.lock();
-                Processing.Mutex mutex;
-                try {
-                    mutex = processing.mutexFor(flavour);
-                } finally {
-                    processing.lock.unlock();
-                }
+                Mutex consumingMutexByFlavour;
 
-                mutex.lock.lock();
+                consumingMutex.getLock().lock();
                 try {
-                    while (processing.isOngoingFor(flavour)) {
-                        mutex.condition.await();
+                    if (!consumingMutexesByFlavour.containsKey(flavour)) {
+                        consumingMutexesByFlavour.put(flavour, new Mutex());
                     }
 
-                    processing.conjFor(flavour);
+                    consumingMutexByFlavour = consumingMutexesByFlavour.get(flavour);
+                } finally {
+                    consumingMutex.getLock().unlock();
+                }
+
+                consumingMutexByFlavour.getLock().lock();
+                try {
+                    while (consumingFlavourQueue.contains(flavour)) {
+                        consumingMutexByFlavour.getCondition().await();
+                    }
+
+                    consumingFlavourQueue.add(flavour);
 
                     try {
                         it.eat(candy);
                     } catch (Exception exception) {
                         /*NOP*/
+                    } finally {
+                        consumingFlavourQueue.remove(flavour);
                     }
 
-                    processing.disjFor(flavour);
-                    mutex.condition.signalAll();
+                    consumingMutexByFlavour.getCondition().signalAll();
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
 
                     throw new RuntimeException(exception);
                 } finally {
-                    mutex.lock.unlock();
+                    consumingMutexByFlavour.getLock().unlock();
                 }
             }
         }, this.consumingExecutorService));
@@ -90,73 +106,49 @@ public class CandyService {
      */
     public void addCandy(Candy candy) {
         CompletableFuture.runAsync(() -> {
-            work.availabilityLock.lock();
+            producingMutex.getLock().lock();
             try {
-                int flavour = candy.flavour();
-                if (!work.available.containsKey(flavour)) {
-                    work.available.put(flavour, new LinkedList<>());
-                }
+                producingQueue.addLast(candy);
+                optimiseQueue(producingQueue);
 
-                work.available.get(flavour).add(candy);
-                work.availabilityCondition.signalAll();
+                producingMutex.getCondition().signalAll();
             } finally {
-                work.availabilityLock.unlock();
+                producingMutex.getLock().unlock();
             }
         }, producingExecutorService);
     }
 
-    private static class Work {
+    private static void optimiseQueue(List<Candy> queue) {
+        Map<Integer, List<Candy>> grouped = queue
+                .stream()
+                .collect(Collectors.groupingBy(Candy::flavour));
 
-        private final Lock availabilityLock = new ReentrantLock();
-        private final Condition availabilityCondition = availabilityLock.newCondition();
+        List<Candy> ordered = interleave(grouped.entrySet()
+                .stream()
+                .sorted(Comparator.comparing(Map.Entry::getKey))
+                .map(Map.Entry::getValue)
+                .collect(Collectors.toList()));
 
-        private final Map<Integer, List<Candy>> available = new LinkedHashMap<>();
-
-        public Candy stealAnyCandy() {
-            for (List<Candy> candies : available.values()) {
-                if (candies.isEmpty()) {
-                    continue;
-                }
-
-                return candies.remove(0);
-            }
-
-            return null;
-        }
+        queue.clear();
+        queue.addAll(ordered);
     }
 
-    private static class Processing {
-
-        private final Lock lock = new ReentrantLock();
-
-        private final Set<Integer> ongoing = new LinkedHashSet<>();
-        private final Map<Integer, Mutex> mutexMap = new LinkedHashMap<>();
-
-        public boolean isOngoingFor(int flavour) {
-            return ongoing.contains(flavour);
+    private static <X> List<X> interleave(List<List<X>> lists) {
+        if (lists.isEmpty()) {
+            return Collections.emptyList();
         }
 
-        public void conjFor(int flavour) {
-            this.ongoing.add(flavour);
+        List<Iterator<X>> its = lists.stream().map(List::iterator).collect(Collectors.toList());
+
+        List<X> result = new LinkedList<>();
+        while (its.stream().anyMatch(Iterator::hasNext)) {
+            its.forEach((Iterator<X> it) -> {
+                if (it.hasNext()) {
+                    result.add(it.next());
+                }
+            });
         }
 
-        public void disjFor(int flavour) {
-            this.ongoing.remove(flavour);
-        }
-
-        public Mutex mutexFor(int flavour) {
-            if (!mutexMap.containsKey(flavour)) {
-                mutexMap.put(flavour, new Mutex());
-            }
-
-            return mutexMap.get(flavour);
-        }
-
-        private static class Mutex {
-
-            private final Lock lock = new ReentrantLock();
-            private final Condition condition = lock.newCondition();
-
-        }
+        return result;
     }
 }
