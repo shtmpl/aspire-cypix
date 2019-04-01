@@ -9,7 +9,7 @@ public final class Main {
     private static final Random RANDOM = new Random();
 
     public static void main(String[] args) {
-        CandyService service = new CandyService(IntStream
+        CandyServiceImpl service = new CandyServiceImpl(IntStream
                 .range(0, 10)
                 .mapToObj(MyCandyEater::new)
                 .toArray(MyCandyEater[]::new));
@@ -22,7 +22,7 @@ public final class Main {
         System.out.println("Served candies");
     }
 
-    public static Stream<Candy> arbitraryCandies() {
+    private static Stream<Candy> arbitraryCandies() {
         return RANDOM.ints(0, 4).mapToObj(MyCandy::fromFlavour);
     }
 }
