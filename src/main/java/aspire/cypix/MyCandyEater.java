@@ -4,7 +4,7 @@ import java.sql.Date;
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 
-public class MyCandyEater implements CandyEater {
+public class MyCandyEater implements ICandyEater {
 
     private final int id;
 
@@ -12,8 +12,8 @@ public class MyCandyEater implements CandyEater {
         this.id = id;
     }
 
-    public void eat(Candy candy) throws Exception {
-        int flavour = candy.flavour();
+    public void eat(ICandy candy) throws Exception {
+        int flavour = candy.getCandyFlavour();
 
         say(String.format("OM NOM NOM'ing c%d", flavour));
 
@@ -22,8 +22,8 @@ public class MyCandyEater implements CandyEater {
         say(String.format("OM NOM NOM'd c%d. Elapsed time: %s", flavour, Timing.formatElapsedTime(elapsed)));
     }
 
-    private void eating(Candy candy) {
-        int flavour = candy.flavour();
+    private void eating(ICandy candy) {
+        int flavour = candy.getCandyFlavour();
         switch (flavour) {
             case 0:
             case 1:

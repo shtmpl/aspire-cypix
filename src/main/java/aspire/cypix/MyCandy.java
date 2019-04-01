@@ -2,7 +2,7 @@ package aspire.cypix;
 
 import java.util.Arrays;
 
-public enum MyCandy implements Candy {
+public enum MyCandy implements ICandy {
     C0(0),
     C1(1),
     C2(2),
@@ -15,7 +15,7 @@ public enum MyCandy implements Candy {
         this.flavour = flavour;
     }
 
-    public int flavour() {
+    public int getCandyFlavour() {
         return flavour;
     }
 

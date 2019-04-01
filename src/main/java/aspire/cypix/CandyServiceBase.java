@@ -1,18 +1,18 @@
 package aspire.cypix;
 
 /**
- * Candy eating service.
+ * ICandy eating service.
  */
 public abstract class CandyServiceBase {
 
     /**
-     * Initialised with an array of available consumers ({@link CandyEater}s).
+     * Initialised with an array of available consumers ({@link ICandyEater}s).
      */
-    public CandyServiceBase(CandyEater... candyEaters) {
+    public CandyServiceBase(ICandyEater... candyEaters) {
     }
 
     /**
-     * Adds a candy for the available consumers ({@link CandyEater}s) to consume ({@link CandyEater#eat(Candy)}).
+     * Adds a candy for the available consumers ({@link ICandyEater}s) to consume ({@link ICandyEater#eat(ICandy)}).
      */
-    public abstract void addCandy(Candy candy);
+    public abstract void addCandy(ICandy candy);
 }

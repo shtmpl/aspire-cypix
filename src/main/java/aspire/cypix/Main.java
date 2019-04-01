@@ -22,7 +22,7 @@ public final class Main {
         System.out.println("Served candies");
     }
 
-    private static Stream<Candy> arbitraryCandies() {
+    private static Stream<ICandy> arbitraryCandies() {
         return RANDOM.ints(0, 4).mapToObj(MyCandy::fromFlavour);
     }
 }

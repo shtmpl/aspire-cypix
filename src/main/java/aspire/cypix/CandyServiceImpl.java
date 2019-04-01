@@ -1,6 +1,5 @@
 package aspire.cypix;
 
-import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -18,17 +17,15 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
- * Candy eating service.
+ * ICandy eating service.
  * <p>
  * This implementation separates the processing logic into three layers.
  * <p>
  * Firstly, there is the supply layer.
- * This layer dispatches the inbound item (added via {@link CandyServiceBase#addCandy(Candy)})
+ * This layer dispatches the inbound item (added via {@link CandyServiceBase#addCandy(ICandy)})
  * to the supplying queue.
  * </p>
  * <p>
@@ -44,11 +41,11 @@ import java.util.stream.IntStream;
  * <p>
  * Lastly, there is the consume layer.
  * This layer is composed of a set of consumer routines
- * (each associated with a {@link CandyEater} provided as an argument to the service constructor).
+ * (each associated with a {@link ICandyEater} provided as an argument to the service constructor).
  * A consumer routine iteratively executes the following steps:
  * <ol>
  * <li>It takes the next available item from the consuming queue.</li>
- * <li>It processes the item obtained by calling ({@link CandyEater#eat(Candy)}).</li>
+ * <li>It processes the item obtained by calling ({@link ICandyEater#eat(ICandy)}).</li>
  * <li>It provides feedback about the operation completion via a consuming feedback queue.</li>
  * </ol>
  * </p>
@@ -59,31 +56,31 @@ public class CandyServiceImpl extends CandyServiceBase {
     private final ExecutorService mediatingExecutorService = Executors.newFixedThreadPool(3);
     private final ExecutorService consumingExecutorService;
 
-    private final BlockingQueue<Candy> supplyingQueue = new LinkedBlockingDeque<>();
-    private final BlockingQueue<Candy> consumingQueue = new LinkedBlockingDeque<>();
-    private final BlockingQueue<Candy> consumingFeedback = new LinkedBlockingDeque<>();
+    private final BlockingQueue<ICandy> supplyingQueue = new LinkedBlockingDeque<>();
+    private final BlockingQueue<ICandy> consumingQueue = new LinkedBlockingDeque<>();
+    private final BlockingQueue<ICandy> consumingFeedback = new LinkedBlockingDeque<>();
 
     /**
-     * Initialised with an array of available consumers ({@link CandyEater}s).
+     * Initialised with an array of available consumers ({@link ICandyEater}s).
      */
-    public CandyServiceImpl(CandyEater... candyEaters) {
+    public CandyServiceImpl(ICandyEater... candyEaters) {
         super(candyEaters);
 
         CompletableFuture.runAsync(this::mediate, this.mediatingExecutorService);
 
         this.consumingExecutorService = Executors.newFixedThreadPool(candyEaters.length);
         Arrays.stream(candyEaters)
-                .forEach((CandyEater eater) -> CompletableFuture.runAsync(() -> consume(eater), this.consumingExecutorService));
+                .forEach((ICandyEater eater) -> CompletableFuture.runAsync(() -> consume(eater), this.consumingExecutorService));
     }
 
     /**
-     * Adds a candy for the available consumers ({@link CandyEater}s) to consume ({@link CandyEater#eat(Candy)}).
+     * Adds a candy for the available consumers ({@link ICandyEater}s) to consume ({@link ICandyEater#eat(ICandy)}).
      */
-    public void addCandy(Candy candy) {
+    public void addCandy(ICandy candy) {
         CompletableFuture.runAsync(() -> supply(candy), supplyingExecutorService);
     }
 
-    private void supply(Candy candy) {
+    private void supply(ICandy candy) {
         try {
             supplyingQueue.put(candy);
         } catch (InterruptedException exception) {
@@ -101,12 +98,12 @@ public class CandyServiceImpl extends CandyServiceBase {
 
         Lock lock = new ReentrantLock();
         Condition condition = lock.newCondition();
-        LinkedList<Candy> queue = new LinkedList<>();
+        LinkedList<ICandy> queue = new LinkedList<>();
 
         CompletableFuture.runAsync(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
-                    Candy candy = supplyingQueue.take();
+                    ICandy candy = supplyingQueue.take();
 
                     lock.lock();
                     try {
@@ -129,16 +126,16 @@ public class CandyServiceImpl extends CandyServiceBase {
             while (!Thread.currentThread().isInterrupted()) {
                 lock.lock();
                 try {
-                    Candy candy;
+                    ICandy candy;
                     while ((candy = queue.stream().findFirst().orElse(null)) == null ||
-                            processing.containsKey(candy.flavour())) {
+                            processing.containsKey(candy.getCandyFlavour())) {
                         condition.await();
                     }
 
-                    Candy next = queue.removeFirst();
+                    ICandy next = queue.removeFirst();
                     System.err.printf("%s <- %s%n", next, queue);
 
-                    processing.put(next.flavour(), true);
+                    processing.put(next.getCandyFlavour(), true);
                     consumingQueue.put(next);
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
@@ -153,8 +150,8 @@ public class CandyServiceImpl extends CandyServiceBase {
         CompletableFuture.runAsync(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
-                    Candy candy = consumingFeedback.take();
-                    int flavour = candy.flavour();
+                    ICandy candy = consumingFeedback.take();
+                    int flavour = candy.getCandyFlavour();
 
                     processing.remove(flavour);
 
@@ -173,10 +170,10 @@ public class CandyServiceImpl extends CandyServiceBase {
         }, mediatingExecutorService);
     }
 
-    private void consume(CandyEater eater) {
+    private void consume(ICandyEater eater) {
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                Candy candy = consumingQueue.take();
+                ICandy candy = consumingQueue.take();
 
                 try {
                     eater.eat(candy);
@@ -204,13 +201,13 @@ public class CandyServiceImpl extends CandyServiceBase {
      * {@code (0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4)}
      * be ordered like {@code (0, 1, 2, 3, 4, 1, 2, 3, 4, 2, 3, 4, 3, 4, 4)}.
      */
-    private static void optimiseQueue(List<Candy> queue) {
+    private static void optimiseQueue(List<ICandy> queue) {
         // FIXME: Current implementation is likely to be ineffective.
-        Map<Integer, List<Candy>> grouped = queue
+        Map<Integer, List<ICandy>> grouped = queue
                 .stream()
-                .collect(Collectors.groupingBy(Candy::flavour));
+                .collect(Collectors.groupingBy(ICandy::getCandyFlavour));
 
-        List<Candy> ordered = interleave(grouped.entrySet()
+        List<ICandy> ordered = interleave(grouped.entrySet()
                 .stream()
                 .sorted(Comparator.comparing(Map.Entry::getKey))
                 .map(Map.Entry::getValue)
