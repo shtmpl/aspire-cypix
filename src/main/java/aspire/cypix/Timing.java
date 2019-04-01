@@ -8,7 +8,7 @@ public class Timing {
 
     /**
      * Sleeps the specified time in units.
-     * Re-interrupts the current thread when the InterruptedException occurs
+     * Re-interrupts the current thread when the InterruptedException occurs.
      */
     public static void sleep(long time, TimeUnit unit) {
         try {
@@ -48,6 +48,4 @@ public class Timing {
                 nanoseconds / NANOSECONDS_IN_A_MILLISECOND,
                 nanoseconds % NANOSECONDS_IN_A_MILLISECOND);
     }
-
-
 }

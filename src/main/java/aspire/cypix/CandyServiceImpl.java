@@ -1,12 +1,8 @@
 package aspire.cypix;
 
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
@@ -17,7 +13,8 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
+import java.util.function.Predicate;
+import java.util.stream.IntStream;
 
 /**
  * ICandy eating service.
@@ -60,9 +57,6 @@ public class CandyServiceImpl extends CandyServiceBase {
     private final BlockingQueue<ICandy> consumingQueue = new LinkedBlockingDeque<>();
     private final BlockingQueue<ICandy> consumingFeedback = new LinkedBlockingDeque<>();
 
-    /**
-     * Initialised with an array of available consumers ({@link ICandyEater}s).
-     */
     public CandyServiceImpl(ICandyEater... candyEaters) {
         super(candyEaters);
 
@@ -73,9 +67,7 @@ public class CandyServiceImpl extends CandyServiceBase {
                 .forEach((ICandyEater eater) -> CompletableFuture.runAsync(() -> consume(eater), this.consumingExecutorService));
     }
 
-    /**
-     * Adds a candy for the available consumers ({@link ICandyEater}s) to consume ({@link ICandyEater#eat(ICandy)}).
-     */
+    @Override
     public void addCandy(ICandy candy) {
         CompletableFuture.runAsync(() -> supply(candy), supplyingExecutorService);
     }
@@ -108,7 +100,6 @@ public class CandyServiceImpl extends CandyServiceBase {
                     lock.lock();
                     try {
                         queue.addLast(candy);
-                        optimiseQueue(queue);
 
                         condition.signalAll();
                     } finally {
@@ -126,13 +117,13 @@ public class CandyServiceImpl extends CandyServiceBase {
             while (!Thread.currentThread().isInterrupted()) {
                 lock.lock();
                 try {
-                    ICandy candy;
-                    while ((candy = queue.stream().findFirst().orElse(null)) == null ||
-                            processing.containsKey(candy.getCandyFlavour())) {
+                    int index;
+                    while ((index = findFirstIndexOf(queue, (ICandy it) -> !processing.containsKey(it.getCandyFlavour()))) == -1 ||
+                            processing.containsKey(queue.get(index).getCandyFlavour())) {
                         condition.await();
                     }
 
-                    ICandy next = queue.removeFirst();
+                    ICandy next = queue.remove(index);
                     System.err.printf("%s <- %s%n", next, queue);
 
                     processing.put(next.getCandyFlavour(), true);
@@ -190,49 +181,10 @@ public class CandyServiceImpl extends CandyServiceBase {
         }
     }
 
-    /**
-     * Optimises the queue by reordering its elements.
-     * <p>
-     * This implementation is inspired by the premise that
-     * no two candies of a given kind could be consumed simultaneously by any two consumers.
-     * The optimal order of elements is therefore considered to be the sequence of groups of diversified elements.
-     * <p>
-     * Long story short, we'd like the sequence of elements
-     * {@code (0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4)}
-     * be ordered like {@code (0, 1, 2, 3, 4, 1, 2, 3, 4, 2, 3, 4, 3, 4, 4)}.
-     */
-    private static void optimiseQueue(List<ICandy> queue) {
-        // FIXME: Current implementation is likely to be ineffective.
-        Map<Integer, List<ICandy>> grouped = queue
-                .stream()
-                .collect(Collectors.groupingBy(ICandy::getCandyFlavour));
-
-        List<ICandy> ordered = interleave(grouped.entrySet()
-                .stream()
-                .sorted(Comparator.comparing(Map.Entry::getKey))
-                .map(Map.Entry::getValue)
-                .collect(Collectors.toList()));
-
-        queue.clear();
-        queue.addAll(ordered);
-    }
-
-    private static <X> List<X> interleave(List<List<X>> lists) {
-        if (lists.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<Iterator<X>> its = lists.stream().map(List::iterator).collect(Collectors.toList());
-
-        List<X> result = new LinkedList<>();
-        while (its.stream().anyMatch(Iterator::hasNext)) {
-            its.forEach((Iterator<X> it) -> {
-                if (it.hasNext()) {
-                    result.add(it.next());
-                }
-            });
-        }
-
-        return result;
+    private static <X> int findFirstIndexOf(List<X> list, Predicate<X> predicate) {
+        return IntStream.range(0, list.size())
+                .filter((int index) -> predicate.test(list.get(index)))
+                .findFirst()
+                .orElse(-1);
     }
 }

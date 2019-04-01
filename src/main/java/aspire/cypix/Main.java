@@ -23,6 +23,6 @@ public final class Main {
     }
 
     private static Stream<ICandy> arbitraryCandies() {
-        return RANDOM.ints(0, 4).mapToObj(MyCandy::fromFlavour);
+        return RANDOM.ints(0, 5).mapToObj(MyCandy::fromFlavour);
     }
 }
